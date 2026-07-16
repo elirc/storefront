@@ -1,0 +1,56 @@
+// Storefront schema — S01 walking skeleton.
+//
+// Deliberately minimal: two tables. Categories, images, carts, orders, reviews, accounts,
+// and the webhook-dedupe table all arrive in the sprint that first needs them (see
+// docs/curriculum/SPEC.md §3). The shape that matters from line one:
+//   * price and stock live on the VARIANT, not the product (a product is a family of buyable
+//     things — S/M/L, red/blue — each with its own price and inventory), and
+//   * money is `priceCents Int` — an integer count of minor units. Never Float, never a
+//     Decimal used as a float. (ADR-0002, docs/concepts/money-in-minor-units.md.)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  variants ProductVariant[]
+
+  @@map("product")
+}
+
+model ProductVariant {
+  id        String @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Human label for the variant within its product ("Small", "Graphite", "500g").
+  name String
+  sku  String @unique
+
+  // WHY: integer minor units. $19.99 is stored as `1999`. There is no `.99` anywhere in the
+  // program, so there is no float rounding error anywhere in the program.
+  priceCents Int
+  currency   String @default("USD")
+
+  // Per-variant inventory. Atomic, transactional decrements are the S12 lesson; for now it is
+  // just a count the storefront reads.
+  stock Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@map("product_variant")
+}
