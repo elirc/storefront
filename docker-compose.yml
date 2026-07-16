@@ -1,0 +1,40 @@
+# Local dev dependencies for Storefront. `docker compose up -d` gives you the same
+# Postgres 16 that CI runs as a service container, plus MinIO for object storage
+# (unused until S10, but wired now so the compose file matches CI and the README).
+#
+# Credentials here are local-dev throwaways and match .env.example — never real secrets.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: storefront
+      POSTGRES_PASSWORD: storefront
+      POSTGRES_DB: storefront
+    ports:
+      - "5432:5432"
+    volumes:
+      - storefront_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storefront"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Object storage — S3-compatible. Not used until S10; present so local == CI.
+  minio:
+    image: bitnami/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: storefront
+      MINIO_ROOT_PASSWORD: storefront
+      MINIO_DEFAULT_BUCKETS: storefront-images
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - storefront_miniodata:/bitnami/minio/data
+
+volumes:
+  storefront_pgdata:
+  storefront_miniodata:
