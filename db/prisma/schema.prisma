@@ -1,12 +1,18 @@
-// Storefront schema — S01 walking skeleton.
+// Storefront schema — S02 grows the catalog domain.
 //
-// Deliberately minimal: two tables. Categories, images, carts, orders, reviews, accounts,
-// and the webhook-dedupe table all arrive in the sprint that first needs them (see
-// docs/curriculum/SPEC.md §3). The shape that matters from line one:
-//   * price and stock live on the VARIANT, not the product (a product is a family of buyable
-//     things — S/M/L, red/blue — each with its own price and inventory), and
-//   * money is `priceCents Int` — an integer count of minor units. Never Float, never a
-//     Decimal used as a float. (ADR-0002, docs/concepts/money-in-minor-units.md.)
+// S01 was two tables (Product + ProductVariant). S02 adds the depth the walking skeleton
+// deferred, exactly where the read surface now needs it (SPEC §3):
+//   * Category — products belong to categories many-to-many (drives the category nav now,
+//     facets + breadcrumbs later, S07/S03).
+//   * ProductImage — ordered images per product with one primary and real `alt` text. The URL
+//     is a seeded local asset for now; real upload + on-the-fly variants are S10.
+//   * ProductVariant.attributes Json — size/color (e.g. { "size": "M", "color": "Slate" }).
+//     Carried from here so the S03 variant picker has something to select on; the S02 list
+//     view-model doesn't surface it yet (ADR-0003: the DTO grows when a screen needs a field).
+//
+// Unchanged and load-bearing since line one: price and stock live on the VARIANT, and money is
+// `priceCents Int` — an integer count of minor units, never Float, never a Decimal-as-float
+// (ADR-0002, docs/concepts/money-in-minor-units.md).
 
 generator client {
   provider = "prisma-client-js"
@@ -26,18 +32,27 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   variants ProductVariant[]
+  images   ProductImage[]
+  // Implicit many-to-many. Prisma manages the `_ProductCategories` join table for us; an
+  // explicit join model earns its place only when the link itself carries data (it doesn't yet).
+  categories Category[] @relation("ProductCategories")
 
   @@map("product")
 }
 
 model ProductVariant {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   // Human label for the variant within its product ("Small", "Graphite", "500g").
   name String
   sku  String @unique
+
+  // Structured variant options, e.g. { "size": "22L", "color": "Slate" }. Json because the
+  // axes differ per product (a mug has none, a bag has size+color) and the storefront doesn't
+  // query on them — the S03 variant picker reads them; the S02 list DTO deliberately does not.
+  attributes Json @default("{}")
 
   // WHY: integer minor units. $19.99 is stored as `1999`. There is no `.99` anywhere in the
   // program, so there is no float rounding error anywhere in the program.
@@ -53,4 +68,43 @@ model ProductVariant {
 
   @@index([productId])
   @@map("product_variant")
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // A seeded local asset under /public for now; the object-store URL arrives in S10.
+  url String
+  // Real, human `alt` text — a description, NOT the filename. The card renders it verbatim; an
+  // empty or filename `alt` is an accessibility bug (see the ⚠️ on ProductCard).
+  alt String
+
+  // Ordering + which one is primary. `position` is 0-based; exactly one row per product should
+  // carry isPrimary = true. The list query orders primary-first so the card can take images[0],
+  // but the service picks the primary explicitly rather than trusting order.
+  position  Int     @default(0)
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  // Idempotent seed key: re-running the seed upserts by (productId, position) instead of
+  // stacking duplicate rows.
+  @@unique([productId, position])
+  @@index([productId])
+  @@map("product_image")
+}
+
+model Category {
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
+
+  products Product[] @relation("ProductCategories")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("category")
 }
