@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { listProducts } from "@/server/services/catalog";
-import { ProductCard } from "@/components/storefront/product-card";
+import { ProductGrid } from "@/components/storefront/product-grid";
 import { Button } from "@/components/ui/button";
 
 // Render per request against the live catalog (and keep the DB out of `next build`; see the
@@ -31,13 +31,9 @@ export default async function HomePage() {
       {featured.length > 0 && (
         <section className="space-y-4">
           <h2 className="text-xl font-medium">Featured</h2>
-          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.map((product) => (
-              <li key={product.id}>
-                <ProductCard product={product} />
-              </li>
-            ))}
-          </ul>
+          {/* Reuse the same server-composed grid the /products page uses — the LCP image gets
+              `priority` for free, and there's one place that decides how a card grid looks. */}
+          <ProductGrid products={featured} />
         </section>
       )}
     </div>

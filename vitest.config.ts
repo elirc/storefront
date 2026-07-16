@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./", import.meta.url)),
+      // `server-only`'s default export throws (it guards the real bundle). In Node/Vitest that
+      // would blow up any test importing a service, so we alias it to a no-op here — the mapping
+      // logic is testable, and the ESLint boundaries rule still enforces the seam in `pnpm lint`.
+      "server-only": fileURLToPath(new URL("./test/stubs/server-only.ts", import.meta.url)),
     },
   },
   test: {

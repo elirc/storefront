@@ -189,6 +189,7 @@ jobs:
       - name: Migrate + seed
         if: steps.guard.outputs.present == 'true'
         run: |
+          pnpm prisma generate
           pnpm prisma migrate deploy
           pnpm db:seed
 
