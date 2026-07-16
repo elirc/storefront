@@ -1,0 +1,54 @@
+# === Author-private course material — NEVER commit ===
+FLAW-LEDGER.local.md
+
+# === Secrets / env ===
+.env
+.env.*
+!.env.example
+
+# === Node / pnpm ===
+node_modules/
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# === Next.js ===
+.next/
+out/
+next-env.d.ts
+.vercel/
+
+# === TypeScript ===
+*.tsbuildinfo
+
+# === Testing / coverage ===
+coverage/
+.vitest/
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# === Prisma ===
+# committed: db/prisma/schema.prisma + db/prisma/migrations/**
+# ignored: a generated client if it is emitted outside node_modules
+db/prisma/generated/
+prisma/generated/
+
+# === Local object storage (MinIO / filesystem adapter) ===
+.storage/
+uploads/
+
+# === Editor / OS ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.local
+
+# === Build caches ===
+.turbo/
+.eslintcache

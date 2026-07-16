@@ -1,0 +1,238 @@
+name: CI
+
+# Storefront CI. Runs on every PR and on pushes to main.
+#
+# Design goals:
+#  - Greenfield-safe: passes on a docs-only bootstrap PR (no package.json yet).
+#  - Zero real credentials: Postgres + MinIO are service containers; Stripe runs against a
+#    signed-fake gateway with a constant TEST webhook secret. Nothing here needs a real key.
+#  - No secret-scanning / dependency-audit jobs by design (this course keeps security light).
+#
+# Jobs:
+#  detect     -> decides whether any non-docs code changed (docs-only PRs skip the heavy jobs)
+#  build-test -> typecheck, lint (incl. layering boundaries), unit/component tests, build
+#  e2e        -> Playwright against Postgres + MinIO + the fake payment gateway
+#  ci         -> single required status: green if the above passed OR were legitimately skipped
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Decide if there is real code to build. Docs-only changes skip build/e2e.
+  # --------------------------------------------------------------------------
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}" || true
+            changed="$(git diff --name-only "$base"...HEAD || git diff --name-only HEAD~1 HEAD || true)"
+          else
+            changed="$(git diff --name-only HEAD~1 HEAD || true)"
+          fi
+          echo "changed files:"; echo "$changed"
+          # "code" = anything that is NOT purely docs/markdown/license/gitignore.
+          if echo "$changed" | grep -Ev '^(docs/|.*\.md$|LICENSE$|\.gitignore$|\.github/ISSUE_TEMPLATE/|\.github/PULL_REQUEST_TEMPLATE)' | grep -q .; then
+            echo "code=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # --------------------------------------------------------------------------
+  # Typecheck, lint, unit/component tests, build.
+  # --------------------------------------------------------------------------
+  build-test:
+    needs: detect
+    if: needs.detect.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — app not scaffolded yet
+        id: guard
+        shell: bash
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json yet — skipping build/test (bootstrap phase)."
+          fi
+
+      - if: steps.guard.outputs.present == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - if: steps.guard.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - if: steps.guard.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - if: steps.guard.outputs.present == 'true'
+        run: pnpm prisma generate
+
+      - if: steps.guard.outputs.present == 'true'
+        run: pnpm typecheck
+
+      - if: steps.guard.outputs.present == 'true'
+        run: pnpm lint
+
+      - if: steps.guard.outputs.present == 'true'
+        run: pnpm test -- --run
+
+      - name: Build
+        if: steps.guard.outputs.present == 'true'
+        env:
+          # Build-time env: mock/test values only, never real keys.
+          DATABASE_URL: postgresql://storefront:storefront@localhost:5432/storefront
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_ci_constant_for_tests
+          PAYMENTS_DRIVER: fake
+          OBJECT_STORE_DRIVER: fs
+        run: pnpm build
+
+  # --------------------------------------------------------------------------
+  # End-to-end (Playwright) against real Postgres + MinIO + the fake gateway.
+  # --------------------------------------------------------------------------
+  e2e:
+    needs: detect
+    if: needs.detect.outputs.code == 'true'
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: storefront
+          POSTGRES_PASSWORD: storefront
+          POSTGRES_DB: storefront
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U storefront"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: storefront
+          MINIO_ROOT_PASSWORD: storefront
+          MINIO_DEFAULT_BUCKETS: storefront-images
+        ports:
+          - 9000:9000
+
+    env:
+      DATABASE_URL: postgresql://storefront:storefront@localhost:5432/storefront
+      # Stripe: NO real keys. The fake gateway signs webhooks with this constant test secret,
+      # and the E2E tests construct events with the same constant — fully credential-free.
+      PAYMENTS_DRIVER: fake
+      STRIPE_SECRET_KEY: sk_test_ci_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_ci_constant_for_tests
+      OBJECT_STORE_DRIVER: s3
+      OBJECT_STORE_ENDPOINT: http://localhost:9000
+      OBJECT_STORE_ACCESS_KEY: storefront
+      OBJECT_STORE_SECRET_KEY: storefront
+      OBJECT_STORE_BUCKET: storefront-images
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — app not scaffolded yet
+        id: guard
+        shell: bash
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json yet — skipping E2E (bootstrap phase)."
+          fi
+
+      - if: steps.guard.outputs.present == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - if: steps.guard.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - if: steps.guard.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate + seed
+        if: steps.guard.outputs.present == 'true'
+        run: |
+          pnpm prisma migrate deploy
+          pnpm db:seed
+
+      - name: Install Playwright browsers
+        if: steps.guard.outputs.present == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E
+        if: steps.guard.outputs.present == 'true'
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ always() && steps.guard.outputs.present == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # --------------------------------------------------------------------------
+  # Single required status. Green when everything that ran passed, and when
+  # docs-only PRs legitimately skipped the heavy jobs.
+  # --------------------------------------------------------------------------
+  ci:
+    needs: [detect, build-test, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate
+        shell: bash
+        run: |
+          echo "detect.code     = ${{ needs.detect.outputs.code }}"
+          echo "build-test.result = ${{ needs.build-test.result }}"
+          echo "e2e.result        = ${{ needs.e2e.result }}"
+          for r in "${{ needs.build-test.result }}" "${{ needs.e2e.result }}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "A required job failed."; exit 1
+            fi
+          done
+          echo "CI gate passed."
