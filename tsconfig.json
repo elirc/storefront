@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "ES2022"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "noEmit": true,
+
+    // The four discipline flags the course leans on. `strict` + `noUncheckedIndexedAccess`
+    // are what make the branded `Cents` and the view-model boundaries actually bite.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

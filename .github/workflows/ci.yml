@@ -85,8 +85,8 @@ jobs:
 
       - if: steps.guard.outputs.present == 'true'
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # Version comes from package.json "packageManager" — passing it here too makes
+        # action-setup@v4 error with ERR_PNPM_BAD_PM_VERSION ("multiple versions specified").
 
       - if: steps.guard.outputs.present == 'true'
         uses: actions/setup-node@v4
@@ -142,14 +142,8 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: storefront
-          MINIO_ROOT_PASSWORD: storefront
-          MINIO_DEFAULT_BUCKETS: storefront-images
-        ports:
-          - 9000:9000
+      # NOTE: object storage (MinIO) is introduced in S10 (image upload); until then the e2e
+      # job needs only Postgres. The MinIO service returns with the sprint that first uses it.
 
     env:
       DATABASE_URL: postgresql://storefront:storefront@localhost:5432/storefront
@@ -180,8 +174,8 @@ jobs:
 
       - if: steps.guard.outputs.present == 'true'
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # Version comes from package.json "packageManager" — passing it here too makes
+        # action-setup@v4 error with ERR_PNPM_BAD_PM_VERSION ("multiple versions specified").
 
       - if: steps.guard.outputs.present == 'true'
         uses: actions/setup-node@v4
