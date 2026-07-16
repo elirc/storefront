@@ -20,7 +20,9 @@ test("product grid renders a seeded product", async ({ page }) => {
 
   // A product the seed guarantees exists. Asserting a concrete name proves the full read path
   // (service → data → Postgres) actually returned rows, not just that the page shell rendered.
-  await expect(page.getByRole("link", { name: "Aurora Desk Lamp" })).toBeVisible();
+  // The card renders the name as a heading (and links it twice — image + title — so we target the
+  // heading to stay unambiguous).
+  await expect(page.getByRole("heading", { name: "Aurora Desk Lamp" })).toBeVisible();
 
   // Money is formatted at the edge — the grid shows a currency string, never raw cents.
   await expect(page.getByText("$59.00").first()).toBeVisible();
