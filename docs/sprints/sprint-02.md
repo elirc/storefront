@@ -75,3 +75,39 @@ field, not speculatively. Recorded in ADR-0003.
   first.
 - Make `ProductCard` a client component and measure the First Load JS delta on `/products`. Then revert
   and explain the number.
+
+## As built in this repository
+
+What the merged Sprint 02 code looks like, for checking the playbook against reality:
+
+- Schema: `Category` (many-to-many `ProductCategories`), `ProductImage` (`position`, `isPrimary`),
+  variant `sku` (unique) and `attributes Json` (`db/prisma/schema.prisma`); second migration
+  `20260716022808_catalog_categories_images_attributes`.
+- Repositories: `findProductsWithVariants` pushes the category filter into SQL with
+  `categories: { some: { slug } }` (`server/data/products.ts:28-40`); `server/data/categories.ts`
+  returns `_count.products`.
+- Service: `listProducts` drops products with no variants, takes the first (cheapest) variant as the
+  price, sets `priceVaries` from distinct prices, and picks the flagged primary image or the first one
+  (`server/services/catalog.ts:54-80`). Ten service tests cover these rules
+  (`server/services/catalog.test.ts:46-125`).
+- UI: `ProductCard`/`ProductGrid` with tests (`components/storefront/product-card.test.tsx`,
+  `product-grid.test.tsx`, including "only the first card's image is priority"), `loading.tsx`,
+  `error.tsx`, `EmptyState`, and a disabled `AddToCart` client stub.
+- E2E: `e2e/catalog.spec.ts` (alt text, "from" price, URL-driven category filter, empty state).
+
+The exercise "render a product with no images" is already answered by
+`catalog.test.ts:69` and `product-card.test.tsx:57`.
+
+### Check yourself
+
+1. **Goal:** confirm the filter runs in SQL.
+   **Check:** with Prisma query logging enabled, `/products?category=lighting` issues one product query
+   whose `WHERE` references the category relation, not a full-table read filtered in JavaScript.
+2. **Goal:** spot the empty-vs-unknown gap.
+   **Check:** `/products?category=does-not-exist` shows "No products yet" with seeding advice, the
+   copy meant for an empty database (`app/(storefront)/products/page.tsx:58-70`). Decide whether this
+   should be a 404 and write the e2e assertion that pins it.
+3. **Goal:** reconcile counts.
+   **Check:** a product with zero variants is counted in the nav (`_count.products`) but filtered out of
+   the grid (`server/services/catalog.ts:58`); either filter it in the count query or show it as
+   unavailable.

@@ -104,13 +104,71 @@ Milestones: **`v0.5.0`** (MVP — browse → cart → Stripe checkout → order 
 sprints and harvested later with failing-test-first arcs; the ledger is revealed at
 `docs/sprints/flaw-ledger.md` after Sprint 15.
 
+## State of this snapshot
+
+This clone stops after **Sprint 02** (`git log`: bootstrap, `Sprint 01 — Walking Skeleton (#7)`,
+`Sprint 02 — Product Catalog + Data Layer (#14)`). The table above and the directory tree describe
+the **finished** course. What actually exists today:
+
+| Exists now | Planned, not yet in the tree |
+|---|---|
+| `app/(storefront)/` home + `/products` (with `loading.tsx`, `error.tsx`) | product detail, cart, checkout, orders, account, `app/(admin)/`, `app/api/` |
+| `server/data/` (`client.ts`, `products.ts`, `categories.ts`), `server/services/catalog.ts` | `server/actions/`, `server/ports/`, `server/adapters/` (the lint rule already names them) |
+| `lib/money.ts`, `lib/cn.ts` | env/zod schema helpers |
+| Prisma models `Product`, `ProductVariant`, `ProductImage`, `Category` (two migrations) | carts, orders, users, reviews |
+| Vitest: `lib/money.test.ts`, `server/services/catalog.test.ts`, two component tests, the money fitness scan; Playwright: `e2e/smoke.spec.ts`, `e2e/catalog.spec.ts` | Stripe fake gateway, MinIO-backed uploads |
+
+`.env.example`, `docker-compose.yml` and CI already carry Stripe and object-storage settings so they
+match later sprints; nothing in the current code reads them. The seed (`db/prisma/seed.ts`) creates
+catalog data only — no seller or orders yet.
+
+## Reading the code that exists
+
+- **Read path.** `app/(storefront)/products/page.tsx:33-36` fetches categories and products in
+  parallel, `server/services/catalog.ts:54-80` maps rows to `ProductListItem` view-models, and
+  `server/data/products.ts:28-40` runs one Prisma query with variants (cheapest first) and images
+  (primary first) included.
+- **Money.** `lib/money.ts:27-34` is the only constructor and rejects non-integers; `allocate`
+  (`:64-90`) is largest-remainder splitting; `formatMoney` (`:95-100`) holds the single `/ 100`.
+- **Guards.** `eslint.config.mjs` declares the layer table with `eslint-plugin-boundaries`;
+  `import "server-only"` heads every file under `server/`; `test/fitness/no-float-money.test.ts`
+  scans `server/` for `parseFloat`, `/ 100` and `.toFixed`.
+
+## Exercises (current code)
+
+1. **Goal:** feel the layering rule.
+   **Check:** add `import { prisma } from "@/server/data/client"` to `components/storefront/product-card.tsx`;
+   `pnpm lint` fails with a `boundaries/element-types` error for the `components` to `data` import.
+2. **Goal:** trip the money scan.
+   **Check:** add `const dollars = cents / 100;` to `server/services/catalog.ts`; `pnpm test -- --run`
+   fails and the message names the file and line.
+3. **Goal:** see a count mismatch.
+   **Check:** create a product with no variants in a category; the category nav's count includes it
+   (`_count.products`, `server/services/catalog.ts:89`) but the grid does not render it (`:58`).
+
+## Review notes on the current code
+
+- **Misleading copy for an unknown category.** `/products?category=does-not-exist` has no matching
+  category, so the page falls into the "no category" branch and tells the visitor to run
+  `pnpm db:seed` (`app/(storefront)/products/page.tsx:38,58-70`). `e2e/catalog.spec.ts:32-38` only
+  matches `/No products/`, so it passes either way. A 404 or "unknown category" message would be honest.
+- **Currency is trusted, not checked.** `currency as Money["currency"]` (`server/services/catalog.ts:74`)
+  casts the DB string; `ProductVariant.currency` is a free `String` defaulting to `"USD"`, so a non-USD
+  row would reach `formatMoney` unvalidated.
+- **The money scan only watches `server/`.** `app/` and `components/` are not scanned
+  (`test/fitness/no-float-money.test.ts:20`), and `* 0.01` or `Number(x)` arithmetic is not one of the
+  forbidden shapes (`:23-27`).
+- **CI's e2e job sets `OBJECT_STORE_DRIVER: s3`** with a MinIO endpoint but has no MinIO service yet;
+  harmless today because nothing reads it, but it will fail confusingly in S10 if the service is not
+  added back.
+
 ## Running Storefront
 
 ```bash
 pnpm install
 docker compose up -d                 # local Postgres + MinIO (object storage)
 cp .env.example .env                  # test-mode / mock values only — no real keys needed
-pnpm db:migrate && pnpm db:seed       # schema + demo catalog, seller, and orders
+pnpm db:migrate && pnpm db:seed       # schema + demo catalog (categories, products, variants, images)
 pnpm dev                              # http://localhost:3000 (storefront) and /admin (seller)
 ```
 

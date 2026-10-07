@@ -85,3 +85,22 @@ occupant.*
   — `server-only` or the ESLint rule? (Trick: both can; find out which fires first.)
 - Break `formatMoney` to use `parseFloat`. Watch the money source-scan fitness test go RED and name the
   file.
+
+## As built in this repository
+
+The Sprint 01 commit (`88f0017`) delivered the skeleton the playbook describes; Sprint 02 then grew
+it, so today's files show the Sprint 02 shape. Pieces that are still recognisably Sprint 01:
+`lib/money.ts` (`money`, `formatMoney`, branded `Cents`, plus `allocate`), `server/data/client.ts`
+(the `globalThis` Prisma singleton), the money fitness scan in `test/fitness/no-float-money.test.ts`,
+the disabled `components/storefront/add-to-cart.tsx` stub, and `e2e/smoke.spec.ts` (home to products,
+a seeded "Aurora Desk Lamp" at `$59.00`, the disabled add-to-cart).
+
+### Check yourself
+
+1. **Goal:** prove the money scan is not vacuous.
+   **Check:** `test/fitness/no-float-money.test.ts:51-54` fails if `server/` has no source files;
+   rename `server/` temporarily and watch "finds source files to scan" go red.
+2. **Goal:** see why the products page is dynamic.
+   **Check:** remove `export const dynamic = "force-dynamic"` (`app/(storefront)/products/page.tsx:17`)
+   and run `pnpm build` without a database; the build now tries to prerender the page and query
+   Postgres.
